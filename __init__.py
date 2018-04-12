@@ -1,1 +1,1 @@
-from pinn.RobustFill import RobustFill
+from pinn.robustfill import *

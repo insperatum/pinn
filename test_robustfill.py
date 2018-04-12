@@ -2,7 +2,7 @@ import string
 import random
 import time
 import torch
-from RobustFill import RobustFill
+from robustfill import RobustFill
 
 print("Making net...")
 net = RobustFill(input_vocabularies=[string.ascii_uppercase,
