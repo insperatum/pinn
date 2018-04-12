@@ -65,7 +65,7 @@ class RobustFill(nn.Module):
         Returns a new network which modifies this one by changing the target vocabulary
         """
         if target_vocabulary == self.target_vocabulary:
-            return
+            return self
 
         V_weight = []
         V_bias = []
@@ -331,49 +331,4 @@ class RobustFill(nn.Module):
                 out.append([self.target_vocabulary[x] for x in tensor[:final, i]])
             else:
                 out.append([self.target_vocabulary[x] for x in tensor[:, i]])
-        return out
-
-
-
-
-
-if __name__ == "__main__":
-    import string
-    import random
-    import time
-
-    print("Making net...")
-    net = RobustFill(input_vocabularies=[string.ascii_uppercase, string.ascii_uppercase + string.ascii_lowercase], target_vocabulary=string.ascii_lowercase)
-    print("complete.")
-
-    if torch.cuda.is_available():
-        print("CUDAfying net...")
-        net.cuda()
-        print("complete.")
-    else:
-        print("Not using CUDA")
-
-    nBatch=100
-    nSupport=3
-    n_iterations = 100
-
-    def getInstance():
-        target = random.sample(string.ascii_lowercase, random.randint(1,5))
-        inputs =  [(x, x+target) for x in (random.sample(string.ascii_uppercase, random.randint(1,5)) for _ in range(nSupport))]
-        return inputs, target
-
-    print("Making instances")
-    instances = [getInstance() for _ in range(nBatch)]
-    inputs = [_inputs for (_inputs, _target) in instances]
-    targets = [_target for (_inputs, _target) in instances]
-
-    print("Inputs:")
-    print(inputs)
-
-    print("")
-    print("Training:")
-    start=time.time()
-    for i in range(n_iterations):
-        score = net.optimiser_step(inputs, targets)
-        print(score, "(%3.3f seconds per iteration)" % ((time.time()-start)/(i+1)))
-    
+        return out    
