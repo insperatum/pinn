@@ -3,7 +3,7 @@ For training RobustFill-like networks (https://arxiv.org/pdf/1703.07469.pdf)
 
 Example: 3-shot learning f:A->B from a support set X = [(a1,b1), (a2, b2), (a3, b3)]
 
-            where ai, bi, f are sequences with vocabularies of v_a, v_b, v_f
+where ai, bi, f are sequences with vocabularies of v_a, v_b, v_f
 
 ```
 from pinn import RobustFill
