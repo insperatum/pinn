@@ -8,7 +8,7 @@ where ai, bi, f are sequences with vocabularies of v_a, v_b, v_f
 ```
 from pinn import RobustFill
 net = RobustFill(input_vocabularies=[v_a, v_b], target_vocabulary=v_f)
-batch_inputs = [X1, X2, X3, ...]
+batch_inputs = [[(a1,b1), (a2, b2), (a3, b3)], X2, X3, ...]
 batch_target = [f1, f2, f3, ...]
 score = net.optimiser_step(batch_inputs, batch_targets)
 ```
