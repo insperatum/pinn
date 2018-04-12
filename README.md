@@ -1,16 +1,20 @@
 # Program Induction Neural Networks
 For training RobustFill-like networks (https://arxiv.org/pdf/1703.07469.pdf)
 
-Example: 3-shot learning f:A->B from a support set X = [(a1,b1), (a2, b2), (a3, b3)]
+-Supports both output->program mode and input->output->program mode
 
-where ai, bi, f are sequences with vocabularies of v_a, v_b, v_f
+3-shot learning a program `p:A->B` from a support set `X = [(a1,b1), (a2, b2), (a3, b3)]`
+
+where `ai, bi, p` are sequences with vocabularies of `v_a, v_b, v_p`
 
 ```
 from pinn import RobustFill
 net = RobustFill(input_vocabularies=[v_a, v_b], target_vocabulary=v_f)
-batch_inputs = [[(a1,b1), (a2, b2), (a3, b3)], X2, X3, ...]
-batch_target = [f1, f2, f3, ...]
-score = net.optimiser_step(batch_inputs, batch_targets)
+batch_inputs = [[(a1,b1), (a2, b2), (a3, b3)], ] // Batch * Support set * Num inputs/outputs/etc
+batch_target = [p1, p2, p3, ...] // Batch size
+
+score = net.optimiser_step(batch_inputs, batch_targets) //Single gradient update
+samp = net.sample(batch_inputs) //Prediction
 ```
 
 # Todo:
