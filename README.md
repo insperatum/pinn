@@ -1,10 +1,9 @@
 # Program Induction Neural Networks
 For training RobustFill-like networks (https://arxiv.org/pdf/1703.07469.pdf)
 
--Supports both output->program mode and input->output->program mode
+- Supports both output->program mode and input->output->program mode
 
-3-shot learning a program `p:A->B` from a support set `X = [(a1,b1), (a2, b2), (a3, b3)]`
-
+Example: 3-shot learning a program `p:A->B` from a support set `X = [(a1,b1), (a2, b2), (a3, b3)]`
 where `ai, bi, p` are sequences with vocabularies of `v_a, v_b, v_p`
 
 ```
