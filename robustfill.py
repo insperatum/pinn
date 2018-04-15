@@ -105,10 +105,30 @@ class RobustFill(nn.Module):
         Perform a single step of SGD
         """
         if not hasattr(self, 'opt'): self._get_optimiser()
+        self.opt.zero_grad()
         score = self.score(batch_inputs, batch_target, autograd=True).mean()
         (-score).backward()
-        self.opt.step()
-        self.opt.zero_grad()
+        try:
+            self.opt.step()
+        except TypeError as err:
+            print("opt.step failed")
+            print("Parameter types are:")
+            print([type(x.data) for x in self.parameters()])
+            print("Gradient types are:")
+            print([type(x.grad.data) for x in self.parameters()])
+            try:
+                self._get_optimiser()
+                self.opt.step()
+            except TypeError as err2:
+                print("new opt failed!")
+                try:
+                    self._clear_optimiser()
+                    self._get_optimiser()
+                    self.opt.step()
+                except TypeError as err3:
+                    print("even newer opt failed!")
+            raise err
+                
         return score.data[0]
 
     def score(self, batch_inputs, batch_target, autograd=False):
@@ -158,9 +178,7 @@ class RobustFill(nn.Module):
     
     def __setstate__(self, state):
         self.__dict__.update(state)
-        # Legacy:
-        # if type(self.encoder_init) is tuple:
-        #     self.encoder_init = nn.ParameterList(list(self.encoder_init))
+        if hasattr(self, 'optstate'): self._fix_optstate()
 
     def _ones(self, *args, **kwargs):
         if next(self.parameters()).is_cuda:
@@ -182,7 +200,23 @@ class RobustFill(nn.Module):
         self.opt = torch.optim.Adam(self.parameters(), lr=0.001)
         if hasattr(self, 'optstate'): self.opt.load_state_dict(self.optstate)
 
-             
+    def _fix_optstate(self): #make sure that we don't have optstate on as tensor but params as cuda tensor, or vice versa
+        is_cuda = next(self.parameters()).is_cuda
+        for state in self.optstate['state'].values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.cuda() if is_cuda else v.cpu()
+
+    def cuda(self, *args, **kwargs):
+        if hasattr(self, 'opt'): del self.opt
+        if hasattr(self, 'optstate'): self._fix_optstate()
+        super(RobustFill, self).cuda(*args, **kwargs)
+
+    def cpu(self, *args, **kwargs):
+        if hasattr(self, 'opt'): del self.opt
+        if hasattr(self, 'optstate'): self._fix_optstate()
+        super(RobustFill, self).cpu(*args, **kwargs)
+
     def _encoder_get_init(self, encoder_idx, h=None, batch_size=None):
         if h is None: h = self.encoder_init_h.repeat(batch_size, 1)
         if self.cell_type=="GRU": return h
