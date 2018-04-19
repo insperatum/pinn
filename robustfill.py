@@ -108,26 +108,7 @@ class RobustFill(nn.Module):
         self.opt.zero_grad()
         score = self.score(batch_inputs, batch_target, autograd=True).mean()
         (-score).backward()
-        try:
-            self.opt.step()
-        except TypeError as err:
-            print("opt.step failed")
-            print("Parameter types are:")
-            print([type(x.data) for x in self.parameters()])
-            print("Gradient types are:")
-            print([type(x.grad.data) for x in self.parameters()])
-            try:
-                self._get_optimiser()
-                self.opt.step()
-            except TypeError as err2:
-                print("new opt failed!")
-                try:
-                    self._clear_optimiser()
-                    self._get_optimiser()
-                    self.opt.step()
-                except TypeError as err3:
-                    print("even newer opt failed!")
-            raise err
+        self.opt.step()
                 
         return score.data[0]
 
