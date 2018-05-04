@@ -1,16 +1,12 @@
 from __future__ import print_function
-import sys
 
 import torch
 import torch.nn as nn
 from torch.nn.parameter import Parameter
 from torch.autograd import Variable
-from torch import optim
 import torch.nn.functional as F
 
-import random
 import copy
-import string
 
 def choose(matrix, idxs):
     if type(idxs) is Variable: idxs = idxs.data
@@ -130,7 +126,7 @@ class RobustFill(nn.Module):
     def sampleAndScore(self, batch_inputs, nRepeats=None):
         inputs = self._inputsToTensors(batch_inputs)
         if nRepeats is None:
-            target, score = self._run(batch_inputs, mode="sample")
+            target, score = self._run(inputs, mode="sample")
             target = self._tensorToOutput(target)
             return target, score.data
         else:
