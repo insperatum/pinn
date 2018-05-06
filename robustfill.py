@@ -336,10 +336,10 @@ class RobustFill(nn.Module):
         for i in range(tensor.size(1)):
             l = tensor[:,i].tolist()
             if l[0]==self.v_target:
-                out.append([])
+                out.append(tuple())
             elif self.v_target in l:
                 final = tensor[:,i].tolist().index(self.v_target)
-                out.append([self.target_vocabulary[x] for x in tensor[:final, i]])
+                out.append(tuple(self.target_vocabulary[x] for x in tensor[:final, i]))
             else:
-                out.append([self.target_vocabulary[x] for x in tensor[:, i]])
+                out.append(tuple(self.target_vocabulary[x] for x in tensor[:, i]))
         return out    
