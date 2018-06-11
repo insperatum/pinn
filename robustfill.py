@@ -106,7 +106,7 @@ class RobustFill(nn.Module):
         (-score).backward()
         self.opt.step()
                 
-        return score.data[0]
+        return score.data.item()
 
     def score(self, batch_inputs, batch_target, autograd=False):
         inputs = self._inputsToTensors(batch_inputs)
@@ -134,7 +134,7 @@ class RobustFill(nn.Module):
             score = []
             for i in range(nRepeats):
                 # print("repeat %d" % i)
-                t, s = self._run(batch_inputs, mode="sample")
+                t, s = self._run(inputs, mode="sample")
                 t = self._tensorToOutput(t)
                 target.extend(t)
                 score.extend(list(s.data))
