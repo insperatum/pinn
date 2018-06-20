@@ -31,6 +31,8 @@ class RobustFill(nn.Module):
         self.v_inputs = [len(x) for x in input_vocabularies] # Number of tokens in input vocabularies
         self.v_target = len(target_vocabulary) # Number of tokens in target vocabulary
 
+        self.no_inputs = len(self.input_vocabularies)==0
+
         self.cell_type=cell_type
         if cell_type=='GRU':
             self.encoder_init_h = Parameter(torch.rand(1, self.hidden_size))
@@ -40,18 +42,18 @@ class RobustFill(nn.Module):
             )
             self.decoder_cell = nn.GRUCell(input_size=self.v_target+1, hidden_size=self.hidden_size, bias=True)
         if cell_type=='LSTM':
-            self.encoder_init_h = Parameter(torch.rand(1, self.hidden_size))
+            self.encoder_init_h = Parameter(torch.rand(1, self.hidden_size)) #Also used for decoder if self.no_inputs=True
             self.encoder_init_cs = nn.ParameterList(
                 [Parameter(torch.rand(1, self.hidden_size)) for i in range(len(self.v_inputs))]
             )
-            self.encoder_cells = nn.ModuleList(
-                [nn.LSTMCell(input_size=self.v_inputs[0]+1, hidden_size=self.hidden_size, bias=True)] + 
-                [nn.LSTMCell(input_size=self.v_inputs[i]+1+self.hidden_size, hidden_size=self.hidden_size, bias=True) for i in range(1, self.n_encoders)]
-            )
+            self.encoder_cells = nn.ModuleList()
+            for i in range(self.n_encoders):
+                input_size = self.v_inputs[i] + 1 + (self.hidden_size if i>0 else 0)
+                self.encoder_cells.append(nn.LSTMCell(input_size=input_size, hidden_size=self.hidden_size, bias=True))
             self.decoder_cell = nn.LSTMCell(input_size=self.v_target+1, hidden_size=self.hidden_size, bias=True)
             self.decoder_init_c = Parameter(torch.rand(1, self.hidden_size))
-            
-        self.W = nn.Linear(self.hidden_size + self.hidden_size, self.embedding_size)
+        
+        self.W = nn.Linear(self.hidden_size if self.no_inputs else 2*self.hidden_size, self.embedding_size)
         self.V = nn.Linear(self.embedding_size, self.v_target+1)
 
         self.As = nn.ModuleList([nn.Bilinear(self.hidden_size, self.hidden_size, 1, bias=False) for i in range(self.n_encoders)])
@@ -199,7 +201,11 @@ class RobustFill(nn.Module):
         if self.cell_type=="GRU": return h
         if self.cell_type=="LSTM": return (h, self.encoder_init_cs[encoder_idx].repeat(batch_size, 1))
 
-    def _decoder_get_init(self, h):
+    def _decoder_get_init(self, h=None, batch_size=None):
+        if h is None:
+            assert self.no_inputs
+            h = self.encoder_init_h.repeat(batch_size, 1)
+
         if self.cell_type=="GRU": return h
         if self.cell_type=="LSTM": return (h, self.decoder_init_c.repeat(h.size(0), 1))
 
@@ -216,19 +222,21 @@ class RobustFill(nn.Module):
         """
         assert((mode=="score" and target is not None) or mode=="sample")
 
-        n_examples = len(inputs[0])
-        max_length_inputs = [[inputs[i][j].size(0) for j in range(n_examples)] for i in range(self.n_encoders)]
-        max_length_target = target.size(0) if target is not None else 10
-        batch_size = inputs[0][0].size(1)
+        if self.no_inputs:
+            batch_size = target.size(1)
+        else:
+            batch_size = inputs[0][0].size(1)
+            n_examples = len(inputs[0])
+            max_length_inputs = [[inputs[i][j].size(0) for j in range(n_examples)] for i in range(self.n_encoders)]
+            inputs_scatter = [
+                [   Variable(self._zeros(max_length_inputs[i][j], batch_size, self.v_inputs[i]+1).scatter_(2, inputs[i][j][:, :, None], 1))
+                    for j in range(n_examples)
+                ] for i in range(self.n_encoders)
+            ]  # n_encoders * n_examples * (max_length_input * batch_size * v_input+1)
 
+        max_length_target = target.size(0) if target is not None else 10
         score = Variable(self._zeros(batch_size))
-        inputs_scatter = [
-            [   Variable(self._zeros(max_length_inputs[i][j], batch_size, self.v_inputs[i]+1).scatter_(2, inputs[i][j][:, :, None], 1))
-                for j in range(n_examples)
-            ] for i in range(self.n_encoders)
-        ]  # n_encoders * n_examples * (max_length_input * batch_size * v_input+1)
         if target is not None: target_scatter = Variable(self._zeros(max_length_target, batch_size, self.v_target+1).scatter_(2, target[:, :, None], 1)) # max_length_target * batch_size * v_target+1
-        
 
         H = [] # n_encoders * n_examples * (max_length_input * batch_size * h_encoder_size)
         embeddings = [] # n_encoders * (h for example at INPUT_EOS)
@@ -278,20 +286,21 @@ class RobustFill(nn.Module):
         # ------------------ Decoder -----------------
         # Multi-example pooling: Figure 3, https://arxiv.org/pdf/1703.07469.pdf
         target = target if mode=="score" else self._zeros(max_length_target, batch_size).long()
-        decoder_states = [self._decoder_get_init(embeddings[self.n_encoders-1][j]) for j in range(n_examples)] #P
+        if self.no_inputs: decoder_states = [self._decoder_get_init(batch_size=batch_size)]
+        else: decoder_states = [self._decoder_get_init(embeddings[self.n_encoders-1][j]) for j in range(n_examples)] #P
         active = self._ones(batch_size).byte()
         for k in range(max_length_target):
             FC = []
-            for j in range(n_examples):
+            for j in range(1 if self.no_inputs else n_examples):
                 h = self._cell_get_h(decoder_states[j])
-                p_aug = torch.cat([h, attend(self.n_encoders, j, h)], 1)
+                p_aug = h if self.no_inputs else torch.cat([h, attend(self.n_encoders, j, h)], 1)
                 FC.append(F.tanh(self.W(p_aug)[None, :, :]))
             m = torch.max(torch.cat(FC, 0), 0)[0] # batch_size * embedding_size
             logsoftmax = F.log_softmax(self.V(m), dim=1)
             if mode=="sample": target[k, :] = torch.multinomial(logsoftmax.data.exp(), 1)[:, 0]
             score = score + choose(logsoftmax, target[k, :]) * Variable(active.float())
             active *= (target[k, :] != self.v_target)
-            for j in range(n_examples):
+            for j in range(1 if self.no_inputs else n_examples):
                 if mode=="score":
                     target_char_scatter = target_scatter[k, :, :]
                 elif mode=="sample":
@@ -301,14 +310,17 @@ class RobustFill(nn.Module):
 
     def _inputsToTensors(self, inputsss):
         """
-        :param inputs: size = nBatch * nExamples * nEncoders
+        :param inputs: size = nBatch * nExamples * nEncoders (or nBatch*nExamples is n_encoders=1)
         Returns nEncoders * nExamples tensors of size nBatch * max_len
         """
+        if self.n_encoders == 0: return []
         tensors = []
         for i in range(self.n_encoders):
             tensors.append([])
             for j in range(len(inputsss[0])):
-                inputs = [x[j][i] for x in inputsss]
+                if self.n_encoders == 1: inputs = [x[j] for x in inputsss]
+                else: inputs = [x[j][i] for x in inputsss]
+
                 maxlen = max(len(s) for s in inputs)
                 t = self._ones(maxlen+1, len(inputs)).long()*self.v_inputs[i]
                 for k in range(len(inputs)):
