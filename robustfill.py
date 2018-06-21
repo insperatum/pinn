@@ -119,24 +119,25 @@ class RobustFill(nn.Module):
         else:
             return score.data
 
-    def sample(self, batch_inputs):
+    def sample(self, batch_inputs=None, n_samples=None):
+        assert batch_inputs is not None or n_samples is not None
         inputs = self._inputsToTensors(batch_inputs)
-        target, score = self._run(inputs, mode="sample")
+        target, score = self._run(inputs, mode="sample", n_samples=n_samples)
         target = self._tensorToOutput(target)
         return target
 
-    def sampleAndScore(self, batch_inputs, nRepeats=None):
+    def sampleAndScore(self, batch_inputs=None, n_samples=None, nRepeats=None):
+        assert batch_inputs is not None or n_samples is not None
         inputs = self._inputsToTensors(batch_inputs)
         if nRepeats is None:
-            target, score = self._run(inputs, mode="sample")
+            target, score = self._run(inputs, mode="sample", n_samples=n_samples)
             target = self._tensorToOutput(target)
             return target, score.data
         else:
             target = []
             score = []
             for i in range(nRepeats):
-                # print("repeat %d" % i)
-                t, s = self._run(inputs, mode="sample")
+                t, s = self._run(inputs, mode="sample", n_samples=n_samples)
                 t = self._tensorToOutput(t)
                 target.extend(t)
                 score.extend(list(s.data))
@@ -213,7 +214,7 @@ class RobustFill(nn.Module):
         if self.cell_type=="GRU": return cell_state
         if self.cell_type=="LSTM": return cell_state[0]
 
-    def _run(self, inputs, target=None, mode="sample"):
+    def _run(self, inputs, target=None, mode="sample", n_samples=None):
         """
         :param mode: "score" or "sample"
         :param list[list[LongTensor]] inputs: n_encoders * n_examples * (max length * batch_size)
@@ -223,7 +224,7 @@ class RobustFill(nn.Module):
         assert((mode=="score" and target is not None) or mode=="sample")
 
         if self.no_inputs:
-            batch_size = target.size(1)
+            batch_size = target.size(1) if mode=="score" else n_samples
         else:
             batch_size = inputs[0][0].size(1)
             n_examples = len(inputs[0])
