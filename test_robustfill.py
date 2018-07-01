@@ -29,7 +29,7 @@ for mode in modes:
     def getInstance():
         target = random.sample(string.ascii_uppercase, random.randint(1,3))
         if mode=="single":
-            inputs = [(target * random.randint(2,3),) for _ in range(nSupport)]
+            inputs = [target * random.randint(2,3) for _ in range(nSupport)]
         else:
             inputs =  [(x, x+target) for x in (random.sample(string.ascii_uppercase, random.randint(1,3)) for _ in range(nSupport))]
         return inputs, target
