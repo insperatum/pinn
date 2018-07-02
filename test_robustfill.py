@@ -1,5 +1,4 @@
 from __future__ import print_function
-import string
 import random
 import time
 import torch
@@ -7,14 +6,16 @@ from robustfill import RobustFill
 
 modes = ['single', 'double']
 
+vocab="ABCDEF"
+
 for mode in modes:
     print("-"*20, "\nmode:%s"%mode)
     print("Making net...")
     net = RobustFill(
             input_vocabularies=
-                [string.ascii_uppercase] if mode=="single" else
-                [string.ascii_uppercase, string.ascii_uppercase],
-            target_vocabulary=string.ascii_uppercase)
+                [vocab] if mode=="single" else
+                [vocab, vocab],
+            target_vocabulary=vocab)
     
     if torch.cuda.is_available():
         print("CUDAfying net...")
@@ -22,26 +23,28 @@ for mode in modes:
     else:
         print("Not using CUDA")
 
-    nBatch=500
-    nSupport=3
-    n_iterations = 500
+    nBatch=20
+    nSupport=2
+    n_iterations = 300
 
     def getInstance():
-        target = random.sample(string.ascii_uppercase, random.randint(1,3))
+        target = random.sample(vocab, random.randint(1,2))
         if mode=="single":
-            inputs = [target * random.randint(2,3) for _ in range(nSupport)]
+            inputs = [target * random.randint(1,2) for _ in range(nSupport)]
         else:
-            inputs =  [(x, x+target) for x in (random.sample(string.ascii_uppercase, random.randint(1,3)) for _ in range(nSupport))]
+            inputs =  [(x, x+target) for x in (random.sample(vocab, random.randint(1,2)) for _ in range(nSupport))]
         return inputs, target
 
-    def makePredictions():
+    def makePredictions(vocab_filter=None):
         instances = [getInstance() for _ in range(5)]
+        if vocab_filter is not None: vocab_filter = [vocab_filter]*5
         inputs = [_inputs for (_inputs, _target) in instances]
-        for (input, program) in zip(inputs, net.sample(inputs)):
+        for (i, (input, program)) in enumerate(zip(inputs, net.sample(inputs, vocab_filter=vocab_filter))):
             if mode=="single":
-                print("Inputs:", ", ".join("".join(inp[0]) for inp in input), "\tProgram:", "".join(program))
+                print("Inputs:", ", ".join("".join(inp) for inp in input), "\tProgram:", "".join(program))
             else:
                 print("Inputs:", ", ".join("".join(in1) + "->" + "".join(in2) for in1, in2 in input), "\tProgram:", "".join(program))
+            if vocab_filter is not None: assert(all(x in vocab_filter[i] for x in program))
         print()
 
     print("Training:")
@@ -52,6 +55,13 @@ for mode in modes:
         targets = [_target for (_inputs, _target) in instances]
         score = net.optimiser_step(inputs, targets)
         if i%10==0: print("Iteration %d/%d" % (i, n_iterations), "Score %3.3f" % score, "(%3.3f seconds per iteration)" % ((time.time()-start)/(i+1)))
-        if (i+1)%100==0: makePredictions()
 
-    assert(score>-1)
+    print("Predictions on " + vocab + ":")
+    makePredictions()
+    print("Predictions on ABC:")
+    makePredictions(set("ABC"))
+
+    instances = [getInstance() for _ in range(500)]
+    inputs = [_inputs for (_inputs, _target) in instances]
+    targets = [_target for (_inputs, _target) in instances]
+    assert(net.score(inputs, targets).mean()>-1)
