@@ -1,4 +1,5 @@
 # Program Induction Neural Networks
+[![Build Status](https://travis-ci.org/insperatum/pinn.svg?branch=master)](https://travis-ci.org/insperatum/pinn)
 For training RobustFill-like networks (https://arxiv.org/pdf/1703.07469.pdf)
 
 - Supports both output->program mode and input->output->program mode
