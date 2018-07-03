@@ -23,9 +23,9 @@ for mode in modes:
     else:
         print("Not using CUDA")
 
-    nBatch=20
+    nBatch=25
     nSupport=2
-    n_iterations = 300
+    n_iterations = 500
 
     def getInstance():
         target = random.sample(vocab, random.randint(1,2))
