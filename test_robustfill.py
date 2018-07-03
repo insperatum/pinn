@@ -55,7 +55,7 @@ for mode in modes:
         targets = [_target for (_inputs, _target) in instances]
         score = net.optimiser_step(inputs, targets)
         if i%10==0: print("Iteration %d/%d" % (i, max_n_iterations), "Score %3.3f" % score, "(%3.3f seconds per iteration)" % ((time.time()-start)/(i+1)))
-        if score>-1: break
+        if score>-0.2: break
 
     print("Predictions on " + vocab + ":")
     makePredictions()

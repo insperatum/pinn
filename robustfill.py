@@ -15,7 +15,7 @@ def choose(matrix, idxs):
     return matrix.view(matrix.nelement())[unrolled_idxs]
 
 class RobustFill(nn.Module):
-    def __init__(self, input_vocabularies, target_vocabulary, hidden_size=512, embedding_size=128, cell_type="LSTM"):
+    def __init__(self, input_vocabularies, target_vocabulary, hidden_size=512, embedding_size=128, cell_type="LSTM", max_length=10):
         """
         :param: input_vocabularies: List containing a vocabulary list for each input. E.g. if learning a function f:A->B from (a,b) pairs, input_vocabularies has length 2
         :param: target_vocabulary: Vocabulary list for output
@@ -34,6 +34,7 @@ class RobustFill(nn.Module):
         self.v_target = len(target_vocabulary) # Number of tokens in target vocabulary
 
         self.no_inputs = len(self.input_vocabularies)==0
+        self.max_length = max_length
 
         self.cell_type=cell_type
         if cell_type=='GRU':
@@ -235,7 +236,7 @@ class RobustFill(nn.Module):
                 ] for i in range(self.n_encoders)
             ]  # n_encoders * n_examples * (max_length_input * batch_size * v_input+1)
 
-        max_length_target = target.size(0) if target is not None else 10
+        max_length_target = target.size(0) if target is not None else self.max_length
         score = Variable(self._zeros(batch_size))
         if target is not None: target_scatter = Variable(self._zeros(max_length_target, batch_size, self.v_target+1).scatter_(2, target[:, :, None], 1)) # max_length_target * batch_size * v_target+1
 
