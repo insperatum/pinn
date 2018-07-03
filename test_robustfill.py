@@ -23,9 +23,9 @@ for mode in modes:
     else:
         print("Not using CUDA")
 
-    nBatch=25
+    nBatch=50
     nSupport=2
-    n_iterations = 500
+    max_n_iterations=1000
 
     def getInstance():
         target = random.sample(vocab, random.randint(1,2))
@@ -49,19 +49,15 @@ for mode in modes:
 
     print("Training:")
     start=time.time()
-    for i in range(n_iterations):
+    for i in range(max_n_iterations):
         instances = [getInstance() for _ in range(nBatch)]
         inputs = [_inputs for (_inputs, _target) in instances]
         targets = [_target for (_inputs, _target) in instances]
         score = net.optimiser_step(inputs, targets)
-        if i%10==0: print("Iteration %d/%d" % (i, n_iterations), "Score %3.3f" % score, "(%3.3f seconds per iteration)" % ((time.time()-start)/(i+1)))
+        if i%10==0: print("Iteration %d/%d" % (i, max_n_iterations), "Score %3.3f" % score, "(%3.3f seconds per iteration)" % ((time.time()-start)/(i+1)))
+        if score>-1: break
 
     print("Predictions on " + vocab + ":")
     makePredictions()
     print("Predictions on ABC:")
     makePredictions(set("ABC"))
-
-    instances = [getInstance() for _ in range(500)]
-    inputs = [_inputs for (_inputs, _target) in instances]
-    targets = [_target for (_inputs, _target) in instances]
-    assert(net.score(inputs, targets).mean()>-1)
