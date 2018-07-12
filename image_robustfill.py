@@ -15,7 +15,7 @@ def choose(matrix, idxs):
     return matrix.view(matrix.nelement())[unrolled_idxs]
 
 class Image_RobustFill(nn.Module):
-    def __init__(self, input_vocabularies, target_vocabulary, hidden_size=512, embedding_size=128, cell_type="LSTM"):
+    def __init__(self, target_vocabulary, hidden_size=512, embedding_size=128, cell_type="LSTM"):
         """
         :param: input_vocabularies: List containing a vocabulary list for each input. E.g. if learning a function f:A->B from (a,b) pairs, input_vocabularies has length 2
         :param: target_vocabulary: Vocabulary list for output
@@ -57,21 +57,36 @@ class Image_RobustFill(nn.Module):
         self.W = nn.Linear(self.hidden_size if self.no_inputs else 2*self.hidden_size, self.embedding_size)
         self.V = nn.Linear(self.embedding_size, self.v_target+1)
 
-        self.As = nn.ModuleList([nn.Bilinear(self.hidden_size, self.hidden_size, 1, bias=False) for i in range(self.n_encoders)])
+        #self.As = nn.ModuleList([nn.Bilinear(self.hidden_size, self.hidden_size, 1, bias=False) for i in range(self.n_encoders)])
 
 
-        #image stuff:
 
-        self.conv1 = nn.Conv2d(1,   64, kernel_size=(3, 3),
+        #image encoder:
+        self.conv1 = nn.Conv2d(1,   8, kernel_size=(3, 3),
+                                padding=(3, 3), stride=(1, 1))
+        self.conv2 = nn.Conv2d(8,  16, kernel_size=(3, 3),
                                 padding=(1, 1), stride=(1, 1))
-        self.conv2 = nn.Conv2d(64,  128, kernel_size=(3, 3),
+        self.conv3 = nn.Conv2d(16, 16, kernel_size=(3, 3),
                                 padding=(1, 1), stride=(1, 1))
-        self.conv3 = nn.Conv2d(128, 256, kernel_size=(3, 3),
+        self.conv4 = nn.Conv2d(16, 16, kernel_size=(3, 3),
                                 padding=(1, 1), stride=(1, 1))
-        self.conv4 = nn.Conv2d(256, 512, kernel_size=(3, 3),
-                                padding=(1, 1), stride=(1, 1))
-        self.batch_norm1 = nn.BatchNorm2d(256)
-        self.batch_norm2 = nn.BatchNorm2d(512)
+        #self.conv4 = nn.Conv2d(256, 512, kernel_size=(3, 3),
+        #                        padding=(1, 1), stride=(1, 1))
+        self.batch_norm1 = nn.BatchNorm2d(8)
+        self.batch_norm2 = nn.BatchNorm2d(16)
+
+        self.img_feat_to_embedding = nn.Sequential(nn.Linear(16*16*16, 64), nn.ReLU(), nn.Linear(64,64), nn.ReLU(), nn.Linear(64, self.hidden_size))
+
+
+        #attention params:
+        self.h_to_32_linear = nn.Linear(self.hidden_size, 32)
+        self.img_to_32 = nn.Linear(16*16*16, 32)
+
+        self.fc_loc = nn.Linear(32 + 32, 3 * 2)
+        self.fc_loc.weight.data.zero_()
+        self.fc_loc.bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
+        self.img_feat_to_context = nn.Sequential(nn.Linear(16*16*16, 128), nn.ReLU(), nn.Linear(128,128), nn.ReLU(), nn.Linear(128, self.hidden_size))
+
 
 
     def with_target_vocabulary(self, target_vocabulary):
@@ -266,19 +281,43 @@ class Image_RobustFill(nn.Module):
         embeddings = [] # n_encoders * (h for example at INPUT_EOS)
         #attention_mask = [] # n_encoders * (0 until (and including) INPUT_EOS, then -inf)
 
-        def attend(i, j, h):
+        # def attend(i, j, h):
+        #     """
+        #     'general' attention from https://arxiv.org/pdf/1508.04025.pdf
+        #     :param i: which encoder is doing the attending (or self.n_encoders for the decoder)
+        #     :param j: Index of example
+        #     :param h: batch_size * hidden_size
+        #     """
+        #     assert(i != 0)
+        #     scores = self.As[i-1](
+        #         H[i-1][j].view(max_length_inputs[i-1][j] * batch_size, self.hidden_size),
+        #         h.view(batch_size, self.hidden_size).repeat(max_length_inputs[i-1][j], 1)
+        #     ).view(max_length_inputs[i-1][j], batch_size)
+        #     c = (F.softmax(scores[:, :, None], dim=0) * H[i-1][j]).sum(0)
+        #     return c
+
+        def attend(i,j,h):
             """
-            'general' attention from https://arxiv.org/pdf/1508.04025.pdf
-            :param i: which encoder is doing the attending (or self.n_encoders for the decoder)
-            :param j: Index of example
-            :param h: batch_size * hidden_size
+            spatial transformer attn.
+            H[i-1][j] should be the image itself 
             """
             assert(i != 0)
-            scores = self.As[i-1](
-                H[i-1][j].view(max_length_inputs[i-1][j] * batch_size, self.hidden_size),
-                h.view(batch_size, self.hidden_size).repeat(max_length_inputs[i-1][j], 1)
-            ).view(max_length_inputs[i-1][j], batch_size)
-            c = (F.softmax(scores[:, :, None], dim=0) * H[i-1][j]).sum(0)
+            img = H[i-1][j]
+            linear_img = img.view(-1, img.size(1)*img.size(2)*img.size(3))
+            theta = torch.cat((F.relu(self.h_to_32_linear(h)), F.relu(self.img_to_32(linear_img))),1) #right
+            theta = self.fc_loc(theta)
+
+            #make affine transform with 
+            #sample affine grid with theta and img
+
+            theta = theta.view(-1, 2, 3)
+            grid = F.affine_grid(theta, img.size())
+            transformed_img = F.grid_sample(img, grid)
+
+            linear_transformed_img = transformed_img.view(-1, 
+                transformed_img.size(1)*transformed_img.size(2)*transformed_img.size(3))
+
+            c = self.img_feat_to_context(linear_transformed_img) # we will do b x 16 x 16 x 16 to 64 to 512
             return c
 
         # -------------- Image Encoders -------------
@@ -292,28 +331,33 @@ class Image_RobustFill(nn.Module):
 
             x = inputs[ii][j]
 
-            out = F.relu(self.conv1(x)) 
-            out = F.max_pool2d(out, 2) #b x 64 x14 x 14 
-            out = F.relu(self.conv2(out)) 
-            out = F.max_pool2d(out, 2) #b x 128 x 7 x 7 
-            out = F.relu(self.batch_norm1(self.conv3(out)))
-            out = F.max_pool2d(out,2) #b x 256 x 3 x 3 or 4 x 4
+            out = F.relu(self.batch_norm1(self.conv1(x))) 
+            out = F.max_pool2d(out, 2) #b x 8 x 16 x 16 
+            
 
-            out = F.relu(self.batch_norm2(self.conv4(out))) #b x 512 x 3 x 3 or 4 x 4
+            out = F.relu(self.conv2(out)) #b x 16 x 16 x 16 
+            out = F.relu(self.conv3(out))
+            out = F.relu(self.batch_norm2(self.conv4(out))) #b x 16 x 16 x 16 
 
-            out = out.view(out.size(0), self.hidden_size, -1) 
+            #out = F.max_pool2d(out, 2) #b x 128 x 7 x 7 
+            #out = F.max_pool2d(out,2) #b x 256 x 3 x 3 or 4 x 4
+            #out = F.relu(self.batch_norm2(self.conv4(out))) #b x 512 x 3 x 3 or 4 x 4
+            #todo: make embedding (b x 512) from b x 16 x 16 x 16
 
-
+            #out = out.view(out.size(0), self.hidden_size, -1) #b x 512 x (16x16) 
 
             #out = F.relu(self.fc1(out))
             #out = F.relu(self.fc2(out))
             #out = F.relu(self.fc3(out))
 
-            out = out.permute(2,0,1).contiguous()
-
+            #out = out.permute(2,0,1).contiguous()
             #out = torch.zeros(out.size()).cuda()
+
             _H.append(out)
-            embedding = _H[j].sum(0) #or something like that
+
+            lin_out = out.view(-1, out.size(1)*out.size(2)*out.size(3))
+
+            embedding = self.img_feat_to_embedding(lin_out) #or something like that
             _embeddings.append(embedding)
 
         H.append(_H)
