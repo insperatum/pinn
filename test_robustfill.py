@@ -50,6 +50,7 @@ for mode in modes:
         instances = [getInstance() for _ in range(nBatch)]
         inputs = [_inputs for (_inputs, _target) in instances]
         targets = [_target for (_inputs, _target) in instances]
+        print(inputs)
         score = net.optimiser_step(inputs, targets)
         if i%10==0: print("Iteration %d/%d" % (i, n_iterations), "Score %3.3f" % score, "(%3.3f seconds per iteration)" % ((time.time()-start)/(i+1)))
         if (i+1)%100==0: makePredictions()
