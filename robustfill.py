@@ -347,7 +347,7 @@ class RobustFill(nn.Module):
 
     def _tensorToOutput(self, tensor):
         """
-        :param tensor: max_length * batch_size
+        :param tensor:
         """
         out = []
         for i in range(tensor.size(1)):
