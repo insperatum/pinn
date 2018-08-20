@@ -28,11 +28,16 @@ for mode in modes:
     max_n_iterations=1000
 
     def getInstance():
-        target = random.sample(vocab, random.randint(1,2))
+        #target = random.sample(vocab, random.randint(1,2))
+        span = random.randint(1,2)
+        index = random.randrange(len(vocab)-1)
+        target = list(vocab[index:index+span])
         if mode=="single":
-            inputs = [target * random.randint(1,2) for _ in range(nSupport)]
+            #inputs = [target * random.randint(1,2) for _ in range(nSupport)]
+            inputs = [random.sample(vocab, random.randint(1,2)) *random.randint(1,2) for _ in range(nSupport)]
         else:
-            inputs =  [(x, x+target) for x in (random.sample(vocab, random.randint(1,2)) for _ in range(nSupport))]
+            #inputs =  [(x, x+target) for x in (random.sample(vocab, random.randint(1,2)) for _ in range(nSupport))]
+            inputs =  [(x, x) for x in (random.sample(vocab, random.randint(1,2)) for _ in range(nSupport))]
         return inputs, target
 
     def makePredictions(vocab_filter=None):
@@ -56,7 +61,7 @@ for mode in modes:
         #print(inputs)
         score = net.optimiser_step(inputs, targets)
         if i%10==0: print("Iteration %d/%d" % (i, max_n_iterations), "Score ", score, "(%3.3f seconds per iteration)" % ((time.time()-start)/(i+1)))
-        if score[0]>-0.2: break
+        if score[0]>-0.02: break
 
     print("Predictions on " + vocab + ":")
     makePredictions()
