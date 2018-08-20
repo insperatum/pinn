@@ -8,8 +8,6 @@ import torch.nn.functional as F
 
 import copy
 
-from pinn import RobustFill
-
 #A syntax-checking Robustfill, inspired by https://arxiv.org/pdf/1805.04276.pdf (Leveraging grammar and reinforcement learning ...)
 
 def choose(matrix, idxs):
@@ -72,7 +70,8 @@ class SyntaxCheckingRobustFill(nn.Module):
         self.W = nn.Linear(self.hidden_size if self.no_inputs else 2*self.hidden_size, self.embedding_size)
         self.V = nn.Linear(self.embedding_size, self.v_target+1)
 
-        self.syntax_V = nn.Linear(self.hidden_size, self.v_target+1)
+        self.syntax_W = nn.Linear(self.hidden_size, self.embedding_size)
+        self.syntax_V = nn.Linear(self.embedding_size, self.v_target+1)
 
         self.As = nn.ModuleList([nn.Bilinear(self.hidden_size, self.hidden_size, 1, bias=False) for i in range(self.n_encoders)])
 
@@ -341,15 +340,19 @@ class SyntaxCheckingRobustFill(nn.Module):
 
             #Syntax:
             syntax_p_aug = self._cell_get_h(syntax_decoder_state)
+            syntax_m = F.tanh(self.syntax_W(syntax_p_aug))
             #syntax_FC.append(F.tanh(self.syntax_W(syntax_p_aug)[None, :, :])) #TODO
 
 
             #Here
+            #print("FC size", FC[0].size())
             m = torch.max(torch.cat(FC, 0), 0)[0] # batch_size * embedding_size
+            #print("m size", m.size())
+
             v = self.V(m)
 
-
-            syntax_v = self.syntax_V(syntax_p_aug) #TODO
+            #print("syntax_m size", syntax_m.size())
+            syntax_v = self.syntax_V(syntax_m) #TODO
             #Syntax checker term:
             syntax_logsoftmax = F.log_softmax(syntax_v, dim=1)
             syntax_score = syntax_score + choose(syntax_logsoftmax, target[k, :]) * Variable(active.float())
