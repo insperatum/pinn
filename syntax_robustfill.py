@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 import copy
 
-from robustfill import RobustFill
+from pinn import RobustFill
 
 #A syntax-checking Robustfill, inspired by https://arxiv.org/pdf/1805.04276.pdf (Leveraging grammar and reinforcement learning ...)
 
