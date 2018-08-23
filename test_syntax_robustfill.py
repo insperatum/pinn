@@ -16,7 +16,8 @@ for mode in modes:
                 [vocab] if mode=="single" else
                 [vocab, vocab],
             target_vocabulary=vocab)
-    
+    net.with_target_vocabulary(vocab +'Z')
+
     if torch.cuda.is_available():
         print("CUDAfying net...")
         net.cuda()

@@ -87,8 +87,8 @@ class SyntaxCheckingRobustFill(nn.Module):
         """
         Returns a new network which modifies this one by changing the target vocabulary
         """
-        print("with_target_vocabulary not yet implemente for syntax checker RobsutFill")
-        assert False 
+        print("WARNING: with_target_vocabulary not yet tested for syntax checker RobsutFill")
+        #assert False 
 
         if target_vocabulary == self.target_vocabulary:
             return self
@@ -97,20 +97,45 @@ class SyntaxCheckingRobustFill(nn.Module):
         V_bias = []
         decoder_ih = []
 
+        #syntax
+        syntax_V_weight = []
+        syntax_V_bias = []
+        syntax_decoder_ih = []
+
         for i in range(len(target_vocabulary)):
             if target_vocabulary[i] in self.target_vocabulary:
                 j = self.target_vocabulary.index(target_vocabulary[i])
                 V_weight.append(self.V.weight.data[j:j+1])
                 V_bias.append(self.V.bias.data[j:j+1])
                 decoder_ih.append(self.decoder_cell.weight_ih.data[:,j:j+1])
+
+                #syntax
+                syntax_V_weight.append(self.syntax_V.weight.data[j:j+1])
+                syntax_V_bias.append(self.syntax_V.bias.data[j:j+1])
+                syntax_decoder_ih.append(self.syntax_decoder_cell.weight_ih.data[:,j:j+1])
+
             else:
                 V_weight.append(self._zeros(1, self.V.weight.size(1)))
                 V_bias.append(self._ones(1) * -10)
                 decoder_ih.append(self._zeros(self.decoder_cell.weight_ih.data.size(0), 1))
 
+                #syntax
+                syntax_V_weight.append(self._zeros(1, self.syntax_V.weight.size(1)))
+                syntax_V_bias.append(self._ones(1) * -10)
+                syntax_decoder_ih.append(self._zeros(self.syntax_decoder_cell.weight_ih.data.size(0), 1))
+
+
+
         V_weight.append(self.V.weight.data[-1:])
         V_bias.append(self.V.bias.data[-1:])
         decoder_ih.append(self.decoder_cell.weight_ih.data[:,-1:])
+
+        #syntax
+        syntax_V_weight.append(self.syntax_V.weight.data[-1:])
+        syntax_V_bias.append(self.syntax_V.bias.data[-1:])
+        syntax_decoder_ih.append(self.syntax_decoder_cell.weight_ih.data[:,-1:])
+
+
 
         self.target_vocabulary = target_vocabulary
         self.v_target = len(target_vocabulary)
@@ -122,9 +147,22 @@ class SyntaxCheckingRobustFill(nn.Module):
         self.decoder_cell.weight_ih.data = torch.cat(decoder_ih, dim=1)
         self.decoder_cell.input_size = self.decoder_cell.weight_ih.data.size(1)
 
+        #syntax
+        self.syntax_V.weight.data = torch.cat(syntax_V_weight, dim=0)
+        self.syntax_V.bias.data = torch.cat(syntax_V_bias, dim=0)
+        self.syntax_V.out_features = self.syntax_V.bias.data.size(0)
+
+        self.syntax_decoder_cell.weight_ih.data = torch.cat(syntax_decoder_ih, dim=1)
+        self.syntax_decoder_cell.input_size = self.syntax_decoder_cell.weight_ih.data.size(1)
+
+
         self._clear_optimiser()
         self._refreshVocabularyIndex()
         return copy.deepcopy(self)
+
+        #decoder_cell
+        #self.syntax_V
+        #self.syntax_decoder_cell
 
     def optimiser_step(self, batch_inputs, batch_target, vocab_filter=None):
         """
