@@ -1,5 +1,7 @@
 from __future__ import print_function
 
+import math
+
 import torch
 import torch.nn as nn
 from torch.nn.parameter import Parameter
@@ -58,6 +60,10 @@ class RobustFill(nn.Module):
         
         self.W = nn.Linear(self.hidden_size if self.no_inputs else 2*self.hidden_size, self.embedding_size)
         self.V = nn.Linear(self.embedding_size, self.v_target+1)
+        
+        self.V.weight.data.normal_(0, 0.1)
+        self.V.bias.data.zero_()
+        self.V.bias.data[-1] = math.log(len(self.V.bias)-1) #Initialize so that length of output strings ~ Geo(p=0.5)
 
         self.As = nn.ModuleList([nn.Bilinear(self.hidden_size, self.hidden_size, 1, bias=False) for i in range(self.n_encoders)])
 
