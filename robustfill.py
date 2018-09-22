@@ -17,7 +17,7 @@ def choose(matrix, idxs):
     return matrix.view(matrix.nelement())[unrolled_idxs]
 
 class RobustFill(nn.Module):
-    def __init__(self, input_vocabularies, target_vocabulary, hidden_size=512, embedding_size=128, cell_type="LSTM", max_length=25):
+    def __init__(self, input_vocabularies, target_vocabulary, hidden_size=512, embedding_size=128, cell_type="LSTM", max_length=25, condition_linear=False):
         """
         :param: input_vocabularies: List containing a vocabulary list for each input. E.g. if learning a function f:A->B from (a,b) pairs, input_vocabularies has length 2
         :param: target_vocabulary: Vocabulary list for output
@@ -61,6 +61,12 @@ class RobustFill(nn.Module):
         self.W = nn.Linear(self.hidden_size if self.no_inputs else 2*self.hidden_size, self.embedding_size)
         self.V = nn.Linear(self.embedding_size, self.v_target+1)
         
+        self.condition_linear = condition_linear
+        if self.condition_linear:
+            self.C = nn.Linear(self.hidden_size, self.v_target+1)
+            self.C.weight.data.normal_(0, 0.1)
+            self.C.bias.data.zero_()
+
         self.V.weight.data.normal_(0, 0.1)
         self.V.bias.data.zero_()
         self.V.bias.data[-1] = math.log(len(self.V.bias)-1) #Initialize so that length of output strings ~ Geo(p=0.5)
@@ -305,6 +311,7 @@ class RobustFill(nn.Module):
                 FC.append(F.tanh(self.W(p_aug)[None, :, :]))
             m = torch.max(torch.cat(FC, 0), 0)[0] # batch_size * embedding_size
             v = self.V(m)
+            if self.condition_linear: v = v + self.C(init_h)
             if vocab_filter is not None: v = v.masked_fill(1-vocab_mask, float('-inf'))
             logsoftmax = F.log_softmax(v, dim=1)
             if mode=="sample": target[k, :] = torch.multinomial(logsoftmax.data.exp(), 1)[:, 0]
