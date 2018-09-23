@@ -600,3 +600,4 @@ class SyntaxCheckingRobustFill(nn.Module):
         syntax_decoder_state = self.syntax_decoder_cell(target_char_scatter, syntax_decoder_state) #TODO
         return target, score, decoder_states, syntax_decoder_state, active
 
+
