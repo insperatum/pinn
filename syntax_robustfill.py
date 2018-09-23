@@ -491,11 +491,11 @@ class SyntaxCheckingRobustFill(nn.Module):
 
 
 
-    def beam_decode(self, batch_inputs=None, beam_size=None, vocab_filter=None):
+    def beam_decode(self, batch_inputs=None, beam_size=None, vocab_filter=None, maxlen=None):
         
         inputs = self._inputsToTensors(batch_inputs)
 
-        beam = self._run_with_beam(inputs, beam_size=beam_size, vocab_filter=vocab_filter)
+        beam = self._run_with_beam(inputs, beam_size=beam_size, vocab_filter=vocab_filter, maxlen=maxlen)
         outputs = list(zip(*beam))
         target_tensors, scores = outputs[0], outputs[1] #oy
 
@@ -506,15 +506,15 @@ class SyntaxCheckingRobustFill(nn.Module):
 
 
 
-    def _run_with_beam(self, inputs, beam_size=10, vocab_filter=None):
+    def _run_with_beam(self, inputs, beam_size=10, vocab_filter=None, maxlen=None):
         #assert batchsize is 1 for now
 
         #encode to decoder state
         target, score, decoder_states, syntax_decoder_state, active, H, attention_mask, max_length_inputs, batch_size, n_examples = self._encode(inputs, vocab_filter=vocab_filter) #use hack on run
         beam = [(target, score, decoder_states, syntax_decoder_state, active)] 
 
-
-        for k in range(self.max_length):
+        max_len = maxlen if maxlen is not None else self.max_length
+        for k in range(max_len):
             new_beam = []
             for target, score, decoder_states, syntax_decoder_state, active in beam:
                 if not any(active==True):
