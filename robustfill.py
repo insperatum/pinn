@@ -125,7 +125,7 @@ class RobustFill(nn.Module):
                 
         return score.data.item()
 
-    def score(self, batch_inputs, batch_target, autograd=False, vocab_filter=None, init_h=None):
+    def score(self, batch_inputs, batch_target, autograd=True, vocab_filter=None, init_h=None):
         inputs = self._inputsToTensors(batch_inputs)
         target = self._targetToTensor(batch_target)
         _, score = self._run(inputs, target=target, mode="score", vocab_filter=vocab_filter, init_h=init_h)
@@ -141,13 +141,14 @@ class RobustFill(nn.Module):
         target = self._tensorToOutput(target)
         return target
 
-    def sampleAndScore(self, batch_inputs=None, n_samples=None, nRepeats=None, vocab_filter=None, init_h=None):
+    def sampleAndScore(self, batch_inputs=None, n_samples=None, nRepeats=None, vocab_filter=None, init_h=None, autograd=True):
         assert batch_inputs is not None or n_samples is not None
         inputs = self._inputsToTensors(batch_inputs)
         if nRepeats is None:
             target, score = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter, init_h=init_h)
             target = self._tensorToOutput(target)
-            return target, score.data
+            if not autograd: score=score.data
+            return target, score
         else:
             target = []
             score = []
@@ -155,7 +156,8 @@ class RobustFill(nn.Module):
                 t, s = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter, init_h=init_h)
                 t = self._tensorToOutput(t)
                 target.extend(t)
-                score.extend(list(s.data))
+                if not autograd: s=s.data
+                score.extend(list(s))
             return target, score
                                 
     def _refreshVocabularyIndex(self):
