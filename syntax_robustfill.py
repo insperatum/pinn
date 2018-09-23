@@ -298,7 +298,7 @@ class SyntaxCheckingRobustFill(nn.Module):
         :param vocab_filter: batch_size * ... (set of possible outputs)
         Returns output and score
         """
-        assert((mode=="score" and target is not None) or mode=="sample")
+        assert((mode=="score" and target is not None) or mode=="sample" or mode=="encode_only")
 
 
 
@@ -317,7 +317,7 @@ class SyntaxCheckingRobustFill(nn.Module):
                 ] for i in range(self.n_encoders)
             ]  # n_encoders * n_examples * (max_length_input * batch_size * v_input+1)
 
-        if mode=="encode_only": assert batch_size = 1 #for now
+        if mode=="encode_only": assert batch_size == 1 #for now
 
         max_length_target = target.size(0) if target is not None else self.max_length
         score = Variable(self._zeros(batch_size))
@@ -378,7 +378,7 @@ class SyntaxCheckingRobustFill(nn.Module):
         active = self._ones(batch_size).byte()
 
         #holy hell what a hack
-        if mode=="encode_only": return target, score, decoder_states, syntax_decoder_state, active, H, attention_mask, max_length_inputs, batch_size
+        if mode=="encode_only": return target, score, decoder_states, syntax_decoder_state, active, H, attention_mask, max_length_inputs, batch_size, n_examples
 
         for k in range(max_length_target):
             FC = []
@@ -496,31 +496,35 @@ class SyntaxCheckingRobustFill(nn.Module):
         inputs = self._inputsToTensors(batch_inputs)
 
         beam = self._run_with_beam(inputs, beam_size=beam_size, vocab_filter=vocab_filter)
-
-        target_tensors, scores = zip(*beam)[0], zip(*beam)[1] #oy
+        outputs = list(zip(*beam))
+        target_tensors, scores = outputs[0], outputs[1] #oy
 
         targets = []
         for target in target_tensors:
-            targets.append = self._tensorToOutput(target)
+            targets.append(self._tensorToOutput(target))
         return targets, [score.data for score in scores] #might want a .data here
 
 
 
-    def _run_with_beam(inputs, beam_size=10, vocab_filter=None):
+    def _run_with_beam(self, inputs, beam_size=10, vocab_filter=None):
         #assert batchsize is 1 for now
 
         #encode to decoder state
-        target, score, decoder_states, syntax_decoder_state, active, H, attention_mask, max_length_inputs, batch_size = self._encode(inputs, vocab_filter=vocab_filter) #use hack on run
+        target, score, decoder_states, syntax_decoder_state, active, H, attention_mask, max_length_inputs, batch_size, n_examples = self._encode(inputs, vocab_filter=vocab_filter) #use hack on run
         beam = [(target, score, decoder_states, syntax_decoder_state, active)] 
 
 
-        for k in range(max_length_target):
+        for k in range(self.max_length):
             new_beam = []
             for target, score, decoder_states, syntax_decoder_state, active in beam:
-                for token in self.target_vocabulary_index.values():
+                if not any(active==True):
+                    new_beam.append((target, score, decoder_states, syntax_decoder_state, active))  # I think it's fine not to clone here 
+                else:
+                    for token in list(self.target_vocabulary_index.values()) + [self.v_target]:
+                        #do filtering for these lines 
+                            new_beam.append(self._run_one_step(k, target.clone(), score.clone(), [(ds[0].clone(), ds[1].clone()) for ds in decoder_states], (syntax_decoder_state[0].clone(), syntax_decoder_state[1].clone()),  active.clone(), token, H, attention_mask, max_length_inputs, batch_size, n_examples, vocab_filter=vocab_filter)) #not sure about batch_size
 
-                    #do filtering for these lines 
-                    new_beam.append(self._run_one_step(target, score, decoder_states, syntax_decoder_state, active, token, H, attention_mask, max_length_inputs, batch_size)) #not sure about batch_size
+
             new_beam = sorted(new_beam, key=lambda entry: -entry[1]) # i think this is right....
             beam = new_beam[:beam_size]
 
@@ -546,13 +550,13 @@ class SyntaxCheckingRobustFill(nn.Module):
         c = (F.softmax(scores[:, :, None], dim=0) * H[i-1][j]).sum(0)
         return c
 
-    def _run_one_step(target, score, decoder_states, syntax_decoder_state, active, token, H, attention_mask, max_length_inputs, batch_size):
+    def _run_one_step(self, k, target, score, decoder_states, syntax_decoder_state, active, token, H, attention_mask, max_length_inputs, batch_size, n_examples, vocab_filter=None):
 
         FC = []
         #syntax_FC = []
         for j in range(1 if self.no_inputs else n_examples):
             h = self._cell_get_h(decoder_states[j])
-            p_aug = h if self.no_inputs else torch.cat([h, attend_for_beam(self.n_encoders, j, h, H, attention_mask, max_length_inputs, batch_size)], 1)  #will need H and attention_mask for attend fn
+            p_aug = h if self.no_inputs else torch.cat([h, self.attend_for_beam(self.n_encoders, j, h, H, attention_mask, max_length_inputs, batch_size)], 1)  #will need H and attention_mask for attend fn
             FC.append(F.tanh(self.W(p_aug)[None, :, :]))
 
         #Syntax:
@@ -574,7 +578,7 @@ class SyntaxCheckingRobustFill(nn.Module):
         syntax_logsoftmax = F.log_softmax(syntax_v, dim=1)
 
         #bug: the below line only works in score mode, and not sample mode
-        syntax_score = syntax_score + choose(syntax_logsoftmax, target[k, :]) * Variable(active.float())
+        #syntax_score = syntax_score + choose(syntax_logsoftmax, target[k, :]) * Variable(active.float())
 
 
         v = v + syntax_logsoftmax
@@ -602,6 +606,7 @@ class SyntaxCheckingRobustFill(nn.Module):
 
             decoder_states[j] = self.decoder_cell(target_char_scatter, decoder_states[j]) 
         syntax_decoder_state = self.syntax_decoder_cell(target_char_scatter, syntax_decoder_state) #TODO
-        return target, score, decoder_states, syntax_decoder_state, active
+        #print("DEC LEN", len(decoder_states[0]))
+        return target.clone(), score.clone(), [(ds[0].clone(), ds[1].clone())  for ds in decoder_states], (syntax_decoder_state[0].clone(), syntax_decoder_state[1].clone()), active.clone()
 
 
