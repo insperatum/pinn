@@ -1,5 +1,7 @@
 from __future__ import print_function
 
+import math
+
 import torch
 import torch.nn as nn
 from torch.nn.parameter import Parameter
@@ -15,7 +17,7 @@ def choose(matrix, idxs):
     return matrix.view(matrix.nelement())[unrolled_idxs]
 
 class RobustFill(nn.Module):
-    def __init__(self, input_vocabularies, target_vocabulary, hidden_size=512, embedding_size=128, cell_type="LSTM", max_length=25):
+    def __init__(self, input_vocabularies, target_vocabulary, hidden_size=512, embedding_size=128, cell_type="LSTM", max_length=25, condition_linear=False):
         """
         :param: input_vocabularies: List containing a vocabulary list for each input. E.g. if learning a function f:A->B from (a,b) pairs, input_vocabularies has length 2
         :param: target_vocabulary: Vocabulary list for output
@@ -58,6 +60,16 @@ class RobustFill(nn.Module):
         
         self.W = nn.Linear(self.hidden_size if self.no_inputs else 2*self.hidden_size, self.embedding_size)
         self.V = nn.Linear(self.embedding_size, self.v_target+1)
+        
+        self.condition_linear = condition_linear
+        if self.condition_linear:
+            self.C = nn.Linear(self.hidden_size, self.v_target+1)
+            self.C.weight.data.normal_(0, 0.1)
+            self.C.bias.data.zero_()
+
+        self.V.weight.data.normal_(0, 0.1)
+        self.V.bias.data.zero_()
+        self.V.bias.data[-1] = math.log(len(self.V.bias)-1) #Initialize so that length of output strings ~ Geo(p=0.5)
 
         self.As = nn.ModuleList([nn.Bilinear(self.hidden_size, self.hidden_size, 1, bias=False) for i in range(self.n_encoders)])
 
@@ -113,37 +125,39 @@ class RobustFill(nn.Module):
                 
         return score.data.item()
 
-    def score(self, batch_inputs, batch_target, autograd=False, vocab_filter=None):
+    def score(self, batch_inputs, batch_target, autograd=True, vocab_filter=None, init_h=None):
         inputs = self._inputsToTensors(batch_inputs)
         target = self._targetToTensor(batch_target)
-        _, score = self._run(inputs, target=target, mode="score", vocab_filter=vocab_filter)
+        _, score = self._run(inputs, target=target, mode="score", vocab_filter=vocab_filter, init_h=init_h)
         if autograd:
             return score
         else:
             return score.data
 
-    def sample(self, batch_inputs=None, n_samples=None, vocab_filter=None):
+    def sample(self, batch_inputs=None, n_samples=None, vocab_filter=None, init_h=None):
         assert batch_inputs is not None or n_samples is not None
         inputs = self._inputsToTensors(batch_inputs)
-        target, score = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter)
+        target, score = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter, init_h=init_h)
         target = self._tensorToOutput(target)
         return target
 
-    def sampleAndScore(self, batch_inputs=None, n_samples=None, nRepeats=None, vocab_filter=None):
+    def sampleAndScore(self, batch_inputs=None, n_samples=None, nRepeats=None, vocab_filter=None, init_h=None, autograd=True):
         assert batch_inputs is not None or n_samples is not None
         inputs = self._inputsToTensors(batch_inputs)
         if nRepeats is None:
-            target, score = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter)
+            target, score = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter, init_h=init_h)
             target = self._tensorToOutput(target)
-            return target, score.data
+            if not autograd: score=score.data
+            return target, score
         else:
             target = []
             score = []
             for i in range(nRepeats):
-                t, s = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter)
+                t, s = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter, init_h=init_h)
                 t = self._tensorToOutput(t)
                 target.extend(t)
-                score.extend(list(s.data))
+                if not autograd: s=s.data
+                score.extend(list(s))
             return target, score
                                 
     def _refreshVocabularyIndex(self):
@@ -211,7 +225,7 @@ class RobustFill(nn.Module):
         if self.cell_type=="GRU": return cell_state
         if self.cell_type=="LSTM": return cell_state[0]
 
-    def _run(self, inputs, target=None, mode="sample", n_samples=None, vocab_filter=None):
+    def _run(self, inputs, target=None, mode="sample", n_samples=None, vocab_filter=None, init_h=None):
         """
         :param mode: "score" or "sample"
         :param list[list[LongTensor]] inputs: n_encoders * n_examples * (max length * batch_size)
@@ -267,7 +281,7 @@ class RobustFill(nn.Module):
 
             for j in range(n_examples):
                 active = self._ones(max_length_inputs[i][j], batch_size).byte()
-                state = self._encoder_get_init(i, batch_size=batch_size, h=embeddings[i-1][j] if i>0 else None)
+                state = self._encoder_get_init(i, batch_size=batch_size, h=embeddings[i-1][j] if i>0 else init_h)
                 hs = []
                 h = self._cell_get_h(state)
                 for k in range(max_length_inputs[i][j]):
@@ -288,7 +302,7 @@ class RobustFill(nn.Module):
         # ------------------ Decoder -----------------
         # Multi-example pooling: Figure 3, https://arxiv.org/pdf/1703.07469.pdf
         target = target if mode=="score" else self._zeros(max_length_target, batch_size).long()
-        if self.no_inputs: decoder_states = [self._decoder_get_init(batch_size=batch_size)]
+        if self.no_inputs: decoder_states = [self._decoder_get_init(init_h, batch_size=batch_size)]
         else: decoder_states = [self._decoder_get_init(embeddings[self.n_encoders-1][j]) for j in range(n_examples)] #P
         active = self._ones(batch_size).byte()
         for k in range(max_length_target):
@@ -299,6 +313,7 @@ class RobustFill(nn.Module):
                 FC.append(F.tanh(self.W(p_aug)[None, :, :]))
             m = torch.max(torch.cat(FC, 0), 0)[0] # batch_size * embedding_size
             v = self.V(m)
+            if self.condition_linear: v = v + self.C(init_h)
             if vocab_filter is not None: v = v.masked_fill(1-vocab_mask, float('-inf'))
             logsoftmax = F.log_softmax(v, dim=1)
             if mode=="sample": target[k, :] = torch.multinomial(logsoftmax.data.exp(), 1)[:, 0]

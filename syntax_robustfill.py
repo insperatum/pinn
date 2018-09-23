@@ -195,7 +195,7 @@ class SyntaxCheckingRobustFill(nn.Module):
         target = self._tensorToOutput(target)
         return target
 
-    def sampleAndScore(self, batch_inputs=None, n_samples=None, nRepeats=None, vocab_filter=None):
+    def sampleAndScore(self, batch_inputs=None, n_samples=None, nRepeats=None, autograd=False, vocab_filter=None):
         assert batch_inputs is not None or n_samples is not None
         inputs = self._inputsToTensors(batch_inputs)
         if nRepeats is None:
@@ -210,8 +210,12 @@ class SyntaxCheckingRobustFill(nn.Module):
                 t, s, ss = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter)
                 t = self._tensorToOutput(t)
                 target.extend(t)
-                score.extend(list(s.data))
-                syntax_score.extend(list(ss.data))
+                if autograd:
+                    score.extend(list(s))
+                    syntax_score.extend(list(ss))
+                else:
+                    score.extend(list(s.data))
+                    syntax_score.extend(list(ss.data))
             return target, score, syntax_score
                                 
     def _refreshVocabularyIndex(self): #TODO
@@ -241,8 +245,8 @@ class SyntaxCheckingRobustFill(nn.Module):
         if hasattr(self, 'opt'): del self.opt
         if hasattr(self, 'optstate'): del self.optstate
 
-    def _get_optimiser(self):
-        self.opt = torch.optim.Adam(self.parameters(), lr=0.001)
+    def _get_optimiser(self, lr=0.001):
+        self.opt = torch.optim.Adam(self.parameters(), lr=lr)
         if hasattr(self, 'optstate'): self.opt.load_state_dict(self.optstate)
 
     def _fix_optstate(self): #make sure that we don't have optstate on as tensor but params as cuda tensor, or vice versa
