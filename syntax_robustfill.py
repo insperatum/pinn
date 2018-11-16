@@ -264,7 +264,7 @@ class SyntaxCheckingRobustFill(nn.Module):
     def cpu(self, *args, **kwargs):
         if hasattr(self, 'opt'): del self.opt
         if hasattr(self, 'optstate'): self._fix_optstate()
-        super(RobustFill, self).cpu(*args, **kwargs)
+        super(SyntaxCheckingRobustFill, self).cpu(*args, **kwargs)
 
     def _encoder_get_init(self, encoder_idx, h=None, batch_size=None):
         if h is None: h = self.encoder_init_h.repeat(batch_size, 1)
@@ -501,7 +501,7 @@ class SyntaxCheckingRobustFill(nn.Module):
 
         targets = []
         for target in target_tensors:
-            targets.append(self._tensorToOutput(target))
+            targets.extend(self._tensorToOutput(target))
         return targets, [score.data for score in scores] #might want a .data here
 
 
@@ -518,16 +518,30 @@ class SyntaxCheckingRobustFill(nn.Module):
             new_beam = []
             for target, score, decoder_states, syntax_decoder_state, active in beam:
                 if not any(active==True):
-                    new_beam.append((target, score, decoder_states, syntax_decoder_state, active))  # I think it's fine not to clone here 
+                    if len(new_beam) < beam_size:
+                        new_beam.append((target, score, decoder_states, syntax_decoder_state, active))  # I think it's fine not to clone here
+                        new_beam = sorted(new_beam, key=lambda entry: -entry[1])
+                    else: #len >= beam_size
+                        if score > new_beam[-1][1]: #the worst score in new_beam
+                            #replace
+                            new_beam[-1] = (target, score, decoder_states, syntax_decoder_state, active)
+                            new_beam = sorted(new_beam, key=lambda entry: -entry[1])
                 else:
+                    logsoftmax = self._run_first_half(k, decoder_states, syntax_decoder_state, H, attention_mask, max_length_inputs, batch_size, n_examples, vocab_filter=vocab_filter)
                     for token in list(self.target_vocabulary_index.values()) + [self.v_target]:
                         #do filtering for these lines 
-                            new_beam.append(self._run_one_step(k, target.clone(), score.clone(), [(ds[0].clone(), ds[1].clone()) for ds in decoder_states], (syntax_decoder_state[0].clone(), syntax_decoder_state[1].clone()),  active.clone(), token, H, attention_mask, max_length_inputs, batch_size, n_examples, vocab_filter=vocab_filter)) #not sure about batch_size
-
-
-            new_beam = sorted(new_beam, key=lambda entry: -entry[1]) # i think this is right....
-            beam = new_beam[:beam_size]
-
+                        candidate = self._run_second_half(k, logsoftmax, target.clone(), token, score.clone(), [(ds[0].clone(), ds[1].clone()) for ds in decoder_states], (syntax_decoder_state[0].clone(), syntax_decoder_state[1].clone()), active.clone(), batch_size, n_examples)
+                        if len(new_beam) < beam_size:
+                            new_beam.append(candidate)
+                            new_beam = sorted(new_beam, key=lambda entry: -entry[1])
+                        else: #len >= beam_size
+                            if candidate[1] > new_beam[-1][1]: #the worst score in new_beam
+                                new_beam[-1] = candidate
+                                new_beam = sorted(new_beam, key=lambda entry: -entry[1])
+                        
+            #new_beam = sorted(new_beam, key=lambda entry: -entry[1]) # i think this is right....
+            beam = new_beam
+            assert len(beam) <= beam_size
         return beam
 
 
@@ -550,7 +564,7 @@ class SyntaxCheckingRobustFill(nn.Module):
         c = (F.softmax(scores[:, :, None], dim=0) * H[i-1][j]).sum(0)
         return c
 
-    def _run_one_step(self, k, target, score, decoder_states, syntax_decoder_state, active, token, H, attention_mask, max_length_inputs, batch_size, n_examples, vocab_filter=None):
+    def _run_first_half(self, k, decoder_states, syntax_decoder_state, H, attention_mask, max_length_inputs, batch_size, n_examples, vocab_filter=None):
 
         FC = []
         #syntax_FC = []
@@ -585,6 +599,11 @@ class SyntaxCheckingRobustFill(nn.Module):
         if vocab_filter is not None: v = v.masked_fill(1-vocab_mask, float('-inf'))
         logsoftmax = F.log_softmax(v, dim=1)
         #if mode=="sample": target[k, :] = torch.multinomial(logsoftmax.data.exp(), 1)[:, 0]
+
+        return logsoftmax.clone()
+
+
+    def _run_second_half(self, k, logsoftmax, target, token, score, decoder_states, syntax_decoder_state, active, batch_size, n_examples):
 
 
         #reference: t[:,i] = torch.Tensor([token]), where i is batch index
