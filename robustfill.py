@@ -125,40 +125,46 @@ class RobustFill(nn.Module):
                 
         return score.data.item()
 
-    def score(self, batch_inputs, batch_target, autograd=True, vocab_filter=None, init_h=None):
+    def score(self, batch_inputs, batch_target, autograd=True, vocab_filter=None, init_h=None, get_embeddings=False):
         inputs = self._inputsToTensors(batch_inputs)
         target = self._targetToTensor(batch_target)
-        _, score = self._run(inputs, target=target, mode="score", vocab_filter=vocab_filter, init_h=init_h)
-        if autograd:
-            return score
-        else:
-            return score.data
+        _, score, embeddings = self._run(inputs, target=target, mode="score", vocab_filter=vocab_filter, init_h=init_h)
+        if not autograd: score=score.data
 
-    def sample(self, batch_inputs=None, n_samples=None, vocab_filter=None, init_h=None):
+        if get_embeddings: return score, list(map(torch.stack, embeddings))
+        else: return score
+
+    def sample(self, batch_inputs=None, n_samples=None, vocab_filter=None, init_h=None, get_embeddings=False):
         assert batch_inputs is not None or n_samples is not None
         inputs = self._inputsToTensors(batch_inputs)
-        target, score = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter, init_h=init_h)
+        target, score, embeddings = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter, init_h=init_h)
         target = self._tensorToOutput(target)
-        return target
 
-    def sampleAndScore(self, batch_inputs=None, n_samples=None, nRepeats=None, vocab_filter=None, init_h=None, autograd=True):
+        if get_embeddings: return target, list(map(torch.stack, embeddings))
+        else: return target
+
+    def sampleAndScore(self, batch_inputs=None, n_samples=None, nRepeats=None, vocab_filter=None, init_h=None, autograd=True, get_embeddings=False):
         assert batch_inputs is not None or n_samples is not None
         inputs = self._inputsToTensors(batch_inputs)
         if nRepeats is None:
-            target, score = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter, init_h=init_h)
+            target, score, embeddings = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter, init_h=init_h)
             target = self._tensorToOutput(target)
             if not autograd: score=score.data
-            return target, score
+
+            if get_embeddings: return target, score, list(map(torch.stack, embeddings))
+            else: return (target, score)
         else:
             target = []
             score = []
             for i in range(nRepeats):
-                t, s = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter, init_h=init_h)
+                t, s, embeddings = self._run(inputs, mode="sample", n_samples=n_samples, vocab_filter=vocab_filter, init_h=init_h)
                 t = self._tensorToOutput(t)
                 target.extend(t)
                 if not autograd: s=s.data
                 score.extend(list(s))
-            return target, score
+
+            if get_embeddings: return target, score, list(map(torch.stack, embeddings))
+            else: return (target, score)
                                 
     def _refreshVocabularyIndex(self):
         self.input_vocabularies_index = [
@@ -325,7 +331,7 @@ class RobustFill(nn.Module):
                 elif mode=="sample":
                     target_char_scatter = Variable(self._zeros(batch_size, self.v_target+1).scatter_(1, target[k, :, None], 1))
                 decoder_states[j] = self.decoder_cell(target_char_scatter, decoder_states[j]) 
-        return target, score
+        return target, score, embeddings
 
     def _inputsToTensors(self, inputsss):
         """
