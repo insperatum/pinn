@@ -295,7 +295,7 @@ class RobustFill(nn.Module):
                         state = self.encoder_cells[i](inputs_scatter[i][j][k, :, :], state)
                     else:
                         state = self.encoder_cells[i](torch.cat([inputs_scatter[i][j][k, :, :], attend(i, j, h)], 1), state)
-                    if k+1 < max_length_inputs[i][j]: active[k+1, :] = active[k, :] * (inputs[i][j][k, :] != self.v_inputs[i])
+                    if k+1 < max_length_inputs[i][j]: active[k+1, :] = active[k, :] * (inputs[i][j][k, :] != self.v_inputs[i]).byte()
                     h = self._cell_get_h(state) 
                     hs.append(h[None, :, :])
                 H[i].append(torch.cat(hs, 0))
@@ -324,7 +324,7 @@ class RobustFill(nn.Module):
             logsoftmax = F.log_softmax(v, dim=1)
             if mode=="sample": target[k, :] = torch.multinomial(logsoftmax.data.exp(), 1)[:, 0]
             score = score + choose(logsoftmax, target[k, :]) * Variable(active.float())
-            active *= (target[k, :] != self.v_target)
+            active *= (target[k, :] != self.v_target).byte()
             for j in range(1 if self.no_inputs else n_examples):
                 if mode=="score":
                     target_char_scatter = target_scatter[k, :, :]
